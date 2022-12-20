@@ -27,6 +27,8 @@ contract Capstone {
                                                                                 // I just added this variable to solve it.
     }
     
+    event LANDADDED (uint256 index, string _uri);
+    
     mapping(uint256 => LAND) public lands;                                      // the array of Real Estate
     uint256 land_count;                                                         // land counts, it means how many properties have been added to this.
 
@@ -45,7 +47,7 @@ contract Capstone {
         _;
     }
 
-    function addLand ( string memory uri_, uint256 price_ ) onlyOwner public {  // Add Property
+    function addLand ( string memory uri_, uint256 price_ ) onlyOwner public returns (uint256) {  // Add Property
         lands[land_count].id = land_count;                                      // Initialize Property
         lands[land_count].uri = uri_;
         lands[land_count].price = price_;
@@ -56,7 +58,9 @@ contract Capstone {
         lands[land_count].renter = dead;
 
         landList.push(land_count);                                              // When it just added, it will be listed to LandList.
+        emit LANDADDED(land_count, uri_);
         land_count ++;
+        return land_count - 1;
     }
 
     function buyLand ( uint256 id ) public payable {                            // Buy Property
@@ -108,7 +112,9 @@ contract Capstone {
 
     function rentLand ( uint256 id, uint256 start_date, uint256 end_date ) public payable {     // This function is called when renter click "Rent" Button
         require(lands[id].listed_rent == true, "This land is not allowed to rent");     // if the id Property is not listed in RentList, this transaction will be rejected.
-        require(lands[id].rented == false, "This land is already rented");      // if the id Property is already rented, this transaction will be rejected.
+        if(lands[id].rent_end_date <= block.timestamp) {
+            require(lands[id].rented == false, "This land is already rented");      // if the id Property is already rented, this transaction will be rejected.
+        }
         uint256 period = (end_date - start_date) / 60 / 60 / 24;                // the Start Date and End Date is Unix Epoch time as you know, here we can calculate the period between two times.
         uint256 expected_price = lands[id].rent_price * period / 30;            // Calculate the expected price, for example, the highest user set the 1eth for 1 month. and if the period is 40days, the rent price will be 4/3eth for 40 days.
         require(expected_price <= msg.value, "Insufficient money");             // if the caller sent eth less than expected price, this transaction will be rejected.
@@ -128,22 +134,23 @@ contract Capstone {
         lands[id].rent_end_date = to_date;                                      // update the status of Property
     }
 
+    function getUserBalance (uint256 id, address user) public view returns (uint256) {
+        return lands[id].holders[user];
+    }
+
     function getLandListByUser (address user) public view returns (uint256[] memory) {      // Get the property list that user owns
         uint256 len = 0;
         uint256 i;
-        uint256 j;
-        for(i = 0 ; i < landList.length ; i ++) {
-            j = landList[i];
-            if(lands[j].holders[user] != 0) {
+        for(i = 0 ; i < land_count ; i ++) {
+            if(lands[i].holders[user] != 0) {
                 len ++;
             }
         }
         uint256[] memory result = new uint256 [] (len);
         uint256 k = 0;
-        for(i = 0 ; i < landList.length ; i ++) {
-            j = landList[i];
-            if(lands[j].holders[user] != 0) {
-                result[k ++] = j;
+        for(i = 0 ; i < land_count ; i ++) {
+            if(lands[i].holders[user] != 0) {
+                result[k ++] = i;
             }
         }
 
@@ -172,12 +179,38 @@ contract Capstone {
         return result;
     }
 
+    function getCount () public view returns (uint256[] memory) {
+        uint256 i;
+        uint256[] memory result = new uint256 [] (land_count);
+        for(i = 0 ; i < land_count ; i ++) {
+            result[i] = i;
+        }
+        return result;
+    }
+
     function getLandList () public view returns (uint256[] memory) {        // Get all property list
         return landList;
     }
 
     function getRentList () public view returns (uint256[] memory) {        // Get all property rent list
-        return rentList;
+        uint256 len = 0;
+        uint256 i = 0;
+        uint256 j = 0;
+        for(i = 0 ; i < rentList.length ; i ++) {
+            j = rentList[i];
+            if((lands[j].rent_end_date >= block.timestamp && lands[j].rented == false) || (lands[j].rent_end_date < block.timestamp)) {
+                len ++;
+            }
+        }
+        uint256[] memory result = new uint256 [] (len);
+        uint256 k = 0;
+        for(i = 0 ; i < rentList.length ; i ++) {
+            j = rentList[i];
+            if((lands[j].rent_end_date >= block.timestamp && lands[j].rented == false) || (lands[j].rent_end_date < block.timestamp)) {
+                result[k ++] = j;
+            }
+        }
+        return result;
     }
 
     function getLandInfo (uint256 id) public view returns (string memory , uint256, uint256) {      // Get the Property Information
@@ -209,5 +242,9 @@ contract Capstone {
         require(reward > 0, "No rewards");                                                          // if the reward is zero, this transaction will be rejected, so that users can save their eth
         payable(receiver).transfer(reward);                                                         // send eth to the caller
         lands[id].rewards[msg.sender] = true;                                                       // update the status of property
+    }
+
+    function withdrawFund () public onlyOwner {
+        payable(msg.sender).transfer(address(this).balance);
     }
 }
